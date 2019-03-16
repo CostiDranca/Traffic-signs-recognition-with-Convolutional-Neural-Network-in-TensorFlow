@@ -28,13 +28,13 @@ def load_data(data_directory):
 
 
 def conv2d(input, weights, bias, stride= 1):
-    x_local= tf.nn.conv2d(input, weights, strides=[1, stride, stride, 1], padding='SAME')
+    x_local= tf.nn.conv2d(input, weights, strides=[1, stride, stride, 1], padding='VALID')
     x_local= tf.nn.bias_add(x_local, bias)
     return tf.nn.relu(x_local)
 
 
 def maxpool2d(input, k=2):
-    return tf.nn.max_pool(input, ksize=[1, k, k, 1], strides=[1, k, k, 1], padding='SAME')
+    return tf.nn.max_pool(input, ksize=[1, k, k, 1], strides=[1, k, k, 1], padding='VALID')
 
 def convolutional_net(input, weights, biases):
 
@@ -63,16 +63,9 @@ test_data_directory = os.path.join(ROOT_PATH, "TrafficSigns\Testing")
 images,labels = load_data(train_data_directory)
 unique_labels= set(labels)
 
-images28 = [transform.resize(image,(28,28)) for image in images]
+images28 = [transform.resize(image,(54,54)) for image in images]
 images28 = np.array(images28)
-#images28 = np.array(rgb2gray(images28))
-
-
-images28=images28.reshape(-1,28,28,1)
-b=np.zeros((len(labels),62))
-lungimea=len(labels)
-b[np.arange(lungimea),labels] = 1
-labels = b
+labels = labels
 
 print("Forma: ",labels.shape)
 training_iters = 200
@@ -80,14 +73,14 @@ learning_rate = 0.001
 batch_size = 128
 
 
-x = tf.placeholder(dtype=tf.float32, shape = [None, 28, 28,1])
-y = tf.placeholder(dtype=tf.int32, shape = [None, 62])
+x = tf.placeholder(dtype=tf.float32, shape = [None, 54, 54,3])
+y = tf.placeholder(dtype=tf.int32, shape = [None])
 
 weights = {
-    'wc1': tf.get_variable('W0', shape=(3, 3, 1, 32), initializer=tf.contrib.layers.xavier_initializer()),
+    'wc1': tf.get_variable('W0', shape=(3, 3, 3, 32), initializer=tf.contrib.layers.xavier_initializer()),
     'wc2': tf.get_variable('W1', shape=(3, 3, 32, 64), initializer=tf.contrib.layers.xavier_initializer()),
     'wc3': tf.get_variable('W2', shape=(3, 3, 64, 128), initializer=tf.contrib.layers.xavier_initializer()),
-    'wd1': tf.get_variable('W3', shape=(4 * 4 * 128, 128), initializer=tf.contrib.layers.xavier_initializer()),
+    'wd1': tf.get_variable('W3', shape=(5 * 5 * 128, 128), initializer=tf.contrib.layers.xavier_initializer()),
     'out': tf.get_variable('W6', shape=(128, 62), initializer=tf.contrib.layers.xavier_initializer()),
 }
 biases = {
@@ -100,12 +93,14 @@ biases = {
 
 prediction = convolutional_net(x, weights, biases)
 
-cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=prediction, labels=y))
+cost = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=prediction, labels=y))
 
 optimizer = tf.train.AdamOptimizer(learning_rate=0.001).minimize(cost)
 
-correct_prediction = tf.equal(tf.argmax(prediction, 1), tf.argmax(y, 1))
-accuracy = tf.reduce_mean(tf.cast(correct_prediction,tf.float32))
+correct_pred_1 = tf.argmax(prediction, 1)
+correct_pred = tf.losses.mean_squared_error(tf.cast(correct_pred_1,tf.float32), tf.cast(y, tf.float32))
+
+accuracy = tf.cast(correct_pred,tf.float32)
 
 
 sesiunea = tf.Session()
@@ -114,7 +109,7 @@ sesiunea.run(tf.global_variables_initializer())
 
 
 
-for i in range(201):
+for i in range(20):
     lossu = 0.0
     acuratu = 0.0
     #print("EPOCH: ",i)
@@ -122,10 +117,29 @@ for i in range(201):
         batch_x = images28[batch * batch_size:min((batch + 1) * batch_size, len(images28))]
         batch_y = labels[batch * batch_size:min((batch + 1) * batch_size, len(labels))]
         opt = sesiunea.run(optimizer, feed_dict={x: batch_x, y: batch_y})
-        loss_val, accuracy_val = sesiunea.run([cost,accuracy] , feed_dict={x: batch_x, y: batch_y})
+        _, loss_val, accuracy_val = sesiunea.run([optimizer,cost,accuracy] , feed_dict={x: batch_x, y: batch_y})
         lossu=loss_val
         acuratu=accuracy_val
     if i%1 == 0:
         print("Epoch: ",i,"Loss: ", loss_val, " Acurracy: ", accuracy_val)
+
+test_images,test_labels = load_data(test_data_directory )
+
+test_images28=[transform.resize(image,(54,54)) for image in test_images]
+
+predicted = sesiunea.run([correct_pred_1], feed_dict={x:test_images28})[0]
+
+match=0.0
+for i in range(len(test_labels)):
+    if(test_labels[i]==predicted[i]):
+        #print(i)
+        match=match+1.0
+print(match)
+rata_succes = (match/len(test_labels))*100.
+
+print("Rata Succes: ",rata_succes)
+
+match_count = sum([int(y == y_) for y, y_ in zip(test_labels, predicted)])
+
 
 sesiunea.close()
